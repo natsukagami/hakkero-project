@@ -6,7 +6,7 @@ import Game from './Game';
 
 function viewApp({ roomID, test }) {
   return (
-    <Grid className="App" fliud={roomID !== null}>
+    <Grid className="App" fluid={roomID !== null}>
       {roomID === null ? <Home /> : <Game />}
     </Grid>
   );

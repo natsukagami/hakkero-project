@@ -69,9 +69,13 @@ export function initRoom() {
     try {
       const id = getState().roomID;
       res = await fetch(Config.server + `/rooms/${id}`, { method: 'POST' });
+      if (!res.ok) {
+        throw new Error(res.statusText);
+      }
       res = await res.json();
       res.timeout /= 1000000000;
     } catch (e) {
+      res = null;
       console.log(e);
       dispatch({
         type: ROOM,

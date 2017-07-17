@@ -9,7 +9,9 @@ Contains
 	"console": [<string>, ...],
 	"queueSize": <int>,
 	"found": <Date | "pending" | "accepted" | "rejected" | null>,
-	"roomID": <int | null>
+  "roomID": <int | null>,
+  "inputRoomID": <string>,
+  "inputID": <string>
 }
 */
 
@@ -22,6 +24,8 @@ const WS = 'HOME_WS_CHANGE';
 const CONSOLE = 'HOME_CONSOLE_CHANGE';
 const QUEUE_SIZE = 'HOME_QUEUE_SIZE_CHANGE';
 const FOUND = 'HOME_FOUND_CHANGE';
+const INPUT_ROOM = 'HOME_INPUT_ROOM_CHANGE';
+const INPUT_ID = 'HOME_INPUT_ID_CHANGE';
 
 /**
  * Changes the current username.
@@ -146,6 +150,39 @@ export function actionWelcome() {
 }
 
 /**
+ * Changes the input room ID.
+ * @param {string} roomID 
+ */
+export function actionInputRoom(roomID) {
+  return {
+    type: INPUT_ROOM,
+    payload: roomID
+  };
+}
+
+/**
+ * Changes the input ID.
+ * @param {string} id 
+ */
+export function actionInputID(id) {
+  return {
+    type: INPUT_ID,
+    payload: id
+  };
+}
+
+/**
+ * Submits the jump request.
+ */
+export function actionInputSubmit() {
+  return (dispatch, getState) => {
+    const state = getState();
+    dispatch(actionID(state.home.inputID));
+    dispatch(actionRoomID(Number(state.home.inputRoomID)));
+  };
+}
+
+/**
  * Changes username on action.
  * @param {string} username 
  * @param {{type: string, payload: any}} action
@@ -252,13 +289,39 @@ function reduceFound(found = null, action) {
   }
 }
 
+/**
+ * Changes inputRoomID on action.
+ * @param {string} roomID 
+ * @param {*} action 
+ */
+function reduceInputRoomID(roomID = '', action) {
+  if (action.type === INPUT_ROOM) {
+    return action.payload;
+  }
+  return roomID;
+}
+
+/**
+ * Changes input ID on action.
+ * @param {string} id 
+ * @param {*} action 
+ */
+function reduceInputID(id = '', action) {
+  if (action.type === INPUT_ID) {
+    return action.payload;
+  }
+  return id;
+}
+
 export function reduceHome(home = {}, action) {
   const rH = combineReducers({
     username: reduceUsername,
     ws: reduceWs,
     console: reduceConsole,
     queueSize: reduceQueueSize,
-    found: reduceFound
+    found: reduceFound,
+    inputRoomID: reduceInputRoomID,
+    inputID: reduceInputID
   });
   if (action.type === RESET) {
     return rH({ username: home.username }, action);

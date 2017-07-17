@@ -35,18 +35,26 @@ class viewGame extends Component {
     }
     if (room instanceof Error) {
       return (
-        <h2 className="text-center">
-          An error occured while loading room data. Please{' '}
-          <ResetLink>return to home page</ResetLink>.
-        </h2>
+        <div>
+          <h2 className="text-center">
+            An error occured while loading room data. Please{' '}
+            <ResetLink>return to home page</ResetLink>.
+          </h2>
+          <hr />
+          <Welcome />
+        </div>
       );
     }
     if (ws instanceof Error) {
       return (
-        <h2 className="text-center">
-          An error occured while connecting to server. Please{' '}
-          <ResetLink>return to home page</ResetLink>.
-        </h2>
+        <div>
+          <h2 className="text-center">
+            An error occured while connecting to server. Please{' '}
+            <ResetLink>return to home page</ResetLink>.
+          </h2>
+          <hr />
+          <Welcome />
+        </div>
       );
     }
     return (

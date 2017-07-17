@@ -10,6 +10,7 @@ import {
 } from 'react-bootstrap';
 import { actionConnect, actionUsername, actionWelcome } from './data/home';
 
+import JumpTo from './JumpTo';
 import Matchmaker from './Matchmake';
 import Welcome from './Welcome';
 
@@ -27,6 +28,8 @@ class Home extends Component {
         <Matchmaker />
         <br />
         <Console />
+        <br />
+        <JumpTo />
         <hr />
         <Welcome />
       </div>
