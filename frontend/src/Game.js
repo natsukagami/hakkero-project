@@ -64,7 +64,9 @@ class viewGame extends Component {
           </Col>
         </Row>
         <Input />
-        {require('util').inspect(game)}
+        {process.env.NODE_ENV === 'production'
+          ? null
+          : require('util').inspect(game)}
       </div>
     );
   }
