@@ -39,12 +39,12 @@ func (s Status) MarshalJSON() ([]byte, error) {
 // Room represents a playing Room.
 type Room struct {
 	ID        int           `json:"id"`
-	Members   []User        `json:"members"`   // The list of all members.
-	Status    []Status      `json:"status"`    // The status of each member in the room.
-	Sentences []Sentence    `json:"sentences"` // The list of all sentences.
-	Start     time.Time     `json:"start"`     // The time of the start of the game.
-	Current   time.Time     `json:"current"`   // The time when the current turn started.
-	Timeout   time.Duration `json:"timeout"`   // The time of each turn.
+	Members   []User        `json:"members"`           // The list of all members.
+	Status    []Status      `json:"status"`            // The status of each member in the room.
+	Sentences []Sentence    `json:"sentences"`         // The list of all sentences.
+	Start     time.Time     `json:"start"`             // The time of the start of the game.
+	Current   time.Time     `json:"current,omitempty"` // The time when the current turn started.
+	Timeout   time.Duration `json:"timeout"`           // The time of each turn.
 }
 
 // Ended returns whether the game has ended.
@@ -71,16 +71,26 @@ func (r Room) Index(ID string) (int, error) {
 }
 
 // NextTurn returns the next turn and DOES NOT modifies the current status.
-// Returns false if game ended.
+// Returns true if game ended.
 func (r Room) NextTurn(last int) (int, bool) {
 	if r.Ended() {
-		return last, false
+		return r.Winner(), true
 	}
 	cur := last
 	for {
 		cur = (cur + 1) % len(r.Members)
 		if r.Status[cur] == StatusActive {
-			return cur, true
+			return cur, false
 		}
 	}
+}
+
+// Winner returns the winner.
+func (r Room) Winner() int {
+	for id, st := range r.Status {
+		if st == StatusActive || st == StatusTurn {
+			return id
+		}
+	}
+	return -1
 }

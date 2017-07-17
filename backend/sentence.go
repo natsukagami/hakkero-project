@@ -5,6 +5,6 @@ package backend
 // (e.g. An user has left the game).
 type Sentence struct {
 	Content string `json:"content"`
-	Owner   int    `json:"owner,omitempty"` // The user index (in the User slice) who wrote this sentence. In the case of a system announcement, this is left empty.
+	Owner   int    `json:"owner"`           // The user index (in the User slice) who wrote this sentence. In the case of a system announcement, this is left empty.
 	System  bool   `json:"system,omitempy"` // Indicate that it's a system announcement.
 }

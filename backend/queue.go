@@ -2,11 +2,10 @@ package backend
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 // MessageQueueResponse represents an user's answer to the queuing request.
@@ -23,7 +22,7 @@ func (m messageQueueFound) IsMessage() {}
 // messageQueueAnnouncement represents a "Matchmaking Success/Failed" message.
 type messageQueueAnnouncement struct {
 	Success      bool   `json:"success"`
-	Room         int    `json:"room,omitempty"`
+	Room         int    `json:"room"`
 	Announcement string `json:"announcement,omitempty"`
 }
 
@@ -36,6 +35,13 @@ type messageQueueSize struct {
 
 func (m messageQueueSize) IsMessage() {}
 
+// messageQueueID announces the player's ID to them.
+type messageQueueID struct {
+	ID string
+}
+
+func (m messageQueueID) IsMessage() {}
+
 // Queue represents a queue handler.
 type Queue struct {
 	Config  Config
@@ -47,8 +53,12 @@ type Queue struct {
 
 // Broadcast sends a message to all audiences.
 func (q *Queue) Broadcast(audience []*QueueConn, m Message) {
+	m.done = make(chan struct{})
 	for _, conn := range audience {
-		conn.Recv <- m
+		go func(conn *QueueConn) { conn.Recv <- m }(conn)
+	}
+	for range audience {
+		<-m.done
 	}
 }
 
@@ -76,6 +86,7 @@ func userFromConn(arr []*QueueConn) []User {
 // Play prompts the players for a game.
 // It returns the players who accepted but not enough for a game.
 func (q *Queue) Play(players []*QueueConn) []*QueueConn {
+	log.Println("starting")
 	q.Broadcast(players, Message{
 		Type:    "found",
 		Message: messageQueueFound{},
@@ -90,21 +101,21 @@ func (q *Queue) Play(players []*QueueConn) []*QueueConn {
 				return
 			}
 			if !received {
-				p.Recv <- Message{
+				p.SendMessage(Message{
 					Type: "announcement",
 					Message: messageQueueAnnouncement{
 						Success:      false,
 						Announcement: "You have timed-out a game. Please refresh the page to join again.",
 					},
-				}
+				})
 			} else {
-				p.Recv <- Message{
+				p.SendMessage(Message{
 					Type: "announcement",
 					Message: messageQueueAnnouncement{
 						Success:      false,
 						Announcement: "You have rejected a game. Please refresh the page to join again.",
 					},
-				}
+				})
 			}
 			p.Close()
 			accepted <- nil
@@ -126,6 +137,7 @@ func (q *Queue) Play(players []*QueueConn) []*QueueConn {
 					Announcement: "Cannot find a proper open sentence. Match cancelled!",
 				},
 			})
+			<-time.After(time.Second)
 			return acceptedArr
 		}
 		// New game accepted.
@@ -138,6 +150,7 @@ func (q *Queue) Play(players []*QueueConn) []*QueueConn {
 					Announcement: "Cannot set up a game room. Match cancelled!",
 				},
 			})
+			<-time.After(time.Second)
 			return acceptedArr
 		}
 		q.Broadcast(acceptedArr, Message{
@@ -170,14 +183,17 @@ func (q *Queue) Enqueue(player *QueueConn) {
 			Size: len(q.Players),
 		},
 	})
-	q.mu.Unlock()
+	log.Println(len(q.Players))
 	if len(q.Players) == q.Config.PlayerLimit {
-		old := q.Players
+		nx := q.Play(q.Players)
 		q.Players = make([]*QueueConn, 0)
-		for _, player := range q.Play(old) {
+		q.mu.Unlock()
+		for _, player := range nx {
 			q.Enqueue(player)
 		}
+		return
 	}
+	q.mu.Unlock()
 }
 
 func (q *Queue) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -188,14 +204,16 @@ func (q *Queue) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
 		return
 	}
-	upg := websocket.Upgrader{}
-	conn, err := upg.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		w.Write([]byte("{\"error\": \"Cannot upgrade to WebSocket\"}"))
-		w.WriteHeader(400)
+		log.Println(err)
 		return
 	}
 	pConn := Enqueue(conn, username)
+	q.Broadcast([]*QueueConn{pConn}, Message{
+		Type:    "ID",
+		Message: messageQueueID{ID: pConn.ID},
+	})
 	q.Enqueue(pConn)
 }
 

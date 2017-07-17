@@ -1,31 +1,37 @@
 package backend
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"sync"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 // The following message types are for communication by channels.
 
+// messageIndex announces their own position on the board.
+type messageIndex struct {
+	Index int `json:"index"`
+}
+
+func (messageIndex) IsMessage() {}
+
 // messageTurn contains the current turn's status, and the next turn's index and clock time.
 type messageTurn struct {
-	Status Status    `json:"status"`
-	Time   time.Time `json:"time"`
-	Next   int       `json:"next"`
+	Status []Status  `json:"status"`
+	Time   time.Time `json:"current"`
 }
 
 func (messageTurn) IsMessage() {}
 
 // messageSentence contains the information of an occurring next sentence.
 type messageSentence struct {
-	Sentence
-	Pos int `json:"pos"` // The position in the slice. Maybe it could be sent not in order?
+	Sentence `json:"sentence"`
+	Pos      int `json:"pos"` // The position in the slice. Maybe it could be sent not in order?
 }
 
 func (messageSentence) IsMessage() {}
@@ -41,7 +47,7 @@ func (messageEnd) IsMessage() {}
 type MessageRequest struct {
 	IsSkip   bool `json:"skip"` // Whether the player has skipped.
 	Received time.Time
-	Content  string
+	Content  string `json:"content"`
 }
 
 // Messager is an internal interface, to help type safety with general message-typing.
@@ -53,22 +59,59 @@ type Messager interface {
 type Message struct {
 	Type    string   `json:"type"`
 	Message Messager `json:"message"`
+	done    chan struct{}
+}
+
+type pconnMap struct {
+	mu     sync.Mutex
+	Conns  map[string]*PlayerConn
+	Guests []*PlayerConn
+}
+
+func (p *pconnMap) Get(id string) (*PlayerConn, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	c, ok := p.Conns[id]
+	return c, ok
+}
+
+func (p *pconnMap) Set(id string, conn *PlayerConn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Conns[id] = conn
+}
+
+func (p *pconnMap) Guest(conn *PlayerConn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Guests = append(p.Guests, conn)
+}
+
+func (p *pconnMap) Send(m Message) {
+	sender := func(conn *PlayerConn) { conn.SendMessage(m) }
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, conn := range p.Conns {
+		go sender(conn)
+	}
+	for _, conn := range p.Guests {
+		go sender(conn)
+	}
 }
 
 // RoomHandler is a Handler that serves players' connections to Room server.
 type RoomHandler struct {
 	Room Room
 	// internal variables
-	Conns     map[string]*PlayerConn // All player connections.
-	TurnTimer *time.Timer            // The turn timer.
+	p         pconnMap
+	ctx       context.Context
+	TurnTimer *time.Timer // The turn timer.
 }
 
 // Broadcast sends the message to all listening PlayerConns.
 // It pauses until all messages are scheduled to send.
 func (h *RoomHandler) Broadcast(m Message) {
-	for _, conn := range h.Conns {
-		conn.Recv <- m
-	}
+	h.p.Send(m)
 }
 
 // AddSentence adds a valid sentence into the Room.
@@ -108,25 +151,37 @@ func (h *RoomHandler) addSkip(id int, isSkip bool) {
 	})
 }
 
+func (h *RoomHandler) announceTurn(turn int) {
+	h.Room.Status[turn] = StatusTurn
+	sendStatus := make([]Status, len(h.Room.Status))
+	copy(sendStatus, h.Room.Status)
+	h.Broadcast(Message{
+		Type: "turn",
+		Message: messageTurn{
+			Status: sendStatus,
+			Time:   h.Room.Current,
+		},
+	})
+}
+
 // nextTurn announces the next turn, and, if ended, announces the end.
 func (h *RoomHandler) nextTurn(last int) (int, bool) {
 	nxt, ended := h.Room.NextTurn(last)
 	if ended {
 		h.Broadcast(Message{
-			Type:    "end",
-			Message: messageEnd{Winner: last},
+			Type: "turn",
+			Message: messageTurn{
+				Status: h.Room.Status,
+				Time:   h.Room.Current,
+			},
 		})
-		return last, true
+		h.Broadcast(Message{
+			Type:    "end",
+			Message: messageEnd{Winner: nxt},
+		})
+		return nxt, true
 	}
 	h.Room.Current = time.Now()
-	h.Broadcast(Message{
-		Type: "turn",
-		Message: messageTurn{
-			Status: h.Room.Status[last],
-			Time:   h.Room.Current,
-			Next:   nxt,
-		},
-	})
 	return nxt, ended
 }
 
@@ -141,7 +196,12 @@ func shufflePlayers(players []User) {
 func NewRoom(roomID int, players []User, timeout time.Duration, openSentence string) (h *RoomHandler) {
 	h = new(RoomHandler)
 	shufflePlayers(players)
-	h.Conns = make(map[string]*PlayerConn)
+	h.p = pconnMap{
+		Conns:  make(map[string]*PlayerConn),
+		Guests: make([]*PlayerConn, 0),
+	}
+	var cancel context.CancelFunc
+	h.ctx, cancel = context.WithCancel(context.Background())
 	// Set the room up.
 	h.Room = Room{
 		ID:        roomID,
@@ -149,25 +209,27 @@ func NewRoom(roomID int, players []User, timeout time.Duration, openSentence str
 		Status:    make([]Status, len(players)),
 		Sentences: []Sentence{Sentence{System: true, Content: openSentence}},
 		Start:     time.Now(),
-		Current:   time.Now(),
 		Timeout:   timeout,
 	}
-	go h.Play()
+	go h.Play(cancel)
 	return
 }
 
 // Play starts up the game.
-func (h *RoomHandler) Play() {
+func (h *RoomHandler) Play(cancel context.CancelFunc) {
 	// Wait a while so that all players are connected.
 	<-time.After(10 * time.Second)
 	var (
 		turn  = 0
 		ended = h.Room.Ended()
 	)
+	h.Room.Current = time.Now()
 	for !ended {
 		// Resets the timer so that it gives the proper time.
 		h.TurnTimer = time.NewTimer(h.Room.Current.Add(h.Room.Timeout).Sub(h.Room.Current))
-		conn, active := h.Conns[h.Room.Members[turn].ID]
+		conn, active := h.p.Get(h.Room.Members[turn].ID)
+		h.announceTurn(turn)
+		log.Printf("Room %d: Turn %d\n", h.Room.ID, turn)
 		if !active {
 			// User not even connected
 			h.addSkip(turn, false)
@@ -196,14 +258,12 @@ func (h *RoomHandler) Play() {
 					break awaitResp
 				}
 			}
-			h.TurnTimer.Stop()
-			turn, ended = h.nextTurn(turn)
 		}
+		h.TurnTimer.Stop()
+		turn, ended = h.nextTurn(turn)
 	}
-	// Closes all references
-	for _, conn := range h.Conns {
-		conn.Close()
-	}
+	log.Printf("Room %d ended\n", h.Room.ID)
+	cancel()
 }
 
 func (h *RoomHandler) serveInfoReqs(w http.ResponseWriter, r *http.Request) {
@@ -221,29 +281,46 @@ func (h *RoomHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveInfoReqs(w, r)
 		return
 	}
-	r.ParseForm()
-	if _, err := h.Room.Index(r.FormValue("player")); err != nil {
-		w.Write([]byte("{\"error\": \"You are not a valid player\"}"))
-		w.WriteHeader(403)
-		return
-	}
-	ID := r.FormValue("player")
-	if h.Room.Ended() {
-		w.Write([]byte("{\"error\": \"Game ended\"}"))
-		w.WriteHeader(400)
-		return
-	}
-	upg := websocket.Upgrader{}
-	conn, err := upg.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		w.Write([]byte("{\"error\": \"Cannot upgrade to WebSocket\"}"))
-		w.WriteHeader(400)
 		return
 	}
 	pConn := Prepare(conn)
-	oldConn, ok := h.Conns[ID]
-	if ok {
-		oldConn.Close()
+	var ended bool
+	select {
+	case <-h.ctx.Done():
+		ended = true
+	default:
 	}
-	h.Conns[ID] = pConn
+	// If ended, immediately quit to save memory.
+	if ended {
+		pConn.SendMessage(Message{
+			Type: "end",
+			Message: messageEnd{
+				Winner: h.Room.Winner(),
+			},
+		})
+		return
+	}
+	// If this is a player, announce his index.
+	r.ParseForm()
+	index, err := h.Room.Index(r.FormValue("player"))
+	if err == nil {
+		ID := r.FormValue("player")
+		// Replace old player connection.
+		oldConn, ok := h.p.Get(ID)
+		if ok {
+			oldConn.Close()
+		}
+		pConn.SendMessage(Message{
+			Type: "index",
+			Message: messageIndex{
+				Index: index,
+			},
+		})
+		h.p.Set(ID, pConn)
+	} else {
+		// Guest,
+		h.p.Guest(pConn)
+	}
 }

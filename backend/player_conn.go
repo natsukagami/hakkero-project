@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"log"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -36,15 +37,29 @@ func (p *Conn) broadcastError(err error) {
 
 // receiver fetches messages from Handler and passes it to user.
 func (p *Conn) receiver() {
+msg:
 	for ms := range p.Recv {
-		if p.Error != nil {
-			continue // If an error occurs, just consume.
+		select {
+		case <-p.ErrChan:
+
+			ms.done <- struct{}{}
+			continue msg // If an error occurs, just consume.
+		default:
 		}
 		err := p.Conn.WriteJSON(&ms)
+		log.Println(ms)
+		ms.done <- struct{}{}
 		if err != nil {
 			go p.broadcastError(errors.Wrap(err, "playerconn write"))
 		}
 	}
+}
+
+// SendMessage sends a message to the client, waiting for done.
+func (p *Conn) SendMessage(m Message) {
+	m.done = make(chan struct{})
+	p.Recv <- m
+	<-m.done
 }
 
 // forwarder fetches messages from user interface and forwards it to Handler.
@@ -54,6 +69,7 @@ func (p *PlayerConn) forwarder() {
 	for p.Error == nil {
 		var ms MessageRequest
 		err := p.Conn.ReadJSON(&ms)
+		log.Println(ms)
 		if err != nil {
 			go p.broadcastError(errors.Wrap(err, "playerconn read"))
 			return

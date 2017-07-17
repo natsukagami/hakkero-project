@@ -39,6 +39,7 @@ func (r *Rooms) ServeHTTP(w http.ResponseWriter, rq *http.Request) {
 		return
 	}
 	idStr := rq.URL.EscapedPath()[len("/rooms/"):]
+	println(idStr)
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		w.WriteHeader(400)
@@ -47,7 +48,7 @@ func (r *Rooms) ServeHTTP(w http.ResponseWriter, rq *http.Request) {
 	room, err := r.Get(id)
 	if err != nil {
 		w.WriteHeader(404)
-		w.Write([]byte(err.Error()))
+		w.Write([]byte("{\"error\": \"" + err.Error() + "\"}"))
 		return
 	}
 	room.ServeHTTP(w, rq)

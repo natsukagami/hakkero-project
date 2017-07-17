@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 )
 
 // Version returns the version of Hakkero Project.
@@ -20,22 +21,24 @@ type Server struct {
 
 // Welcome returns a welcome message.
 func (s *Server) Welcome(w http.ResponseWriter, r *http.Request) {
+	s.q.mu.Lock()
+	defer s.q.mu.Unlock()
 	w.Write([]byte(
-		fmt.Sprintf("\"Welcome to Hakkero Project %s! There are %d users online waiting for a room...\"", Version, len(s.q.Players)),
+		fmt.Sprintf("\"Welcome to Hakkero Project %s! You will join a %d-player room with a timeout of %d seconds.\\nThere are %d users online waiting for a room...\"", Version, s.c.PlayerLimit, int64(s.c.Timeout/time.Second), len(s.q.Players)),
 	))
 }
 
 func enableCORS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		// w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		h.ServeHTTP(w, r)
 	})
 }
 
 func logRequest(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s\n", r.Method, r.URL.EscapedPath())
+		log.Printf("%s %s\n", r.Method, r.URL.String())
 		h.ServeHTTP(w, r)
 	})
 }
