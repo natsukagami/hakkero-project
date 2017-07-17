@@ -1,0 +1,15 @@
+{
+  "short_name": "Hakkero Project",
+  "name": "Hakkero Project website",
+  "icons": [
+    {
+      "src": "favicon.ico",
+      "sizes": "310x310",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "./index.html",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
