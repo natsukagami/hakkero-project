@@ -13,6 +13,7 @@ var (
 )
 
 func main() {
+	flag.Parse()
 	srv := backend.NewServer(backend.Config{PlayerLimit: *playerLimit, Timeout: time.Duration(*timeout) * time.Second}, backend.StaticOP(), &backend.Rooms{})
 	srv.Addr = ":2020"
 	println("Ready!")
