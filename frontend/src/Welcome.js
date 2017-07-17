@@ -20,7 +20,7 @@ export default function Welcome() {
           <ul>
             <li>You are given a topic, along with some other players</li>
             <li>
-              The goal this to write the best story...<em> together</em>
+              The goal is to write the best story...<em> together</em>
             </li>
             <li>Each take turn and make one sentence in a specified time.</li>
             <li>You can skip your turn, but there's no turning back.</li>
