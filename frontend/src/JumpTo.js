@@ -31,7 +31,8 @@ export default connect(
   state => {
     return {
       enabled:
-        validate(state.home.inputRoomID) && validateID(state.home.inputID)
+        validate(state.home.inputRoomID) && validateID(state.home.inputID),
+      show: state.home.ws === null
     };
   },
   dispatch => {
@@ -42,7 +43,8 @@ export default connect(
 )(viewJumpTo);
 
 // A jump to form to enter a custom room.
-function viewJumpTo({ submit, enabled }) {
+function viewJumpTo({ submit, enabled, show }) {
+  if (!show) return null;
   return (
     <div className="text-center">
       <Form
