@@ -75,7 +75,7 @@ func (p *PlayerConn) forwarder() {
 			return
 		}
 		ms.Received = time.Now()
-		p.Send <- ms
+		go func() { p.Send <- ms }()
 	}
 }
 
