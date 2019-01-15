@@ -15,7 +15,7 @@ var (
 func main() {
 	flag.Parse()
 	srv := backend.NewServer(backend.Config{PlayerLimit: *playerLimit, Timeout: time.Duration(*timeout) * time.Second}, backend.StaticOP(), &backend.Rooms{})
-	srv.Addr = ":2020"
+	srv.Addr = ":80"
 	println("Ready!")
 	err := srv.ListenAndServe()
 	if err != nil {
